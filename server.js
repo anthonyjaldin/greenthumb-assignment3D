@@ -9,6 +9,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const { initDb, all, get, run } = require('./lib/db');
+const { verifyPassword, DUMMY_HASH } = require('./lib/passwords');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -193,16 +194,19 @@ app.post('/login', (req, res) => {
   // ---- FIX 1: SQL injection (authentication bypass) ---------------------
   // Parameterized query: a username like  curator' --  is compared as a
   // literal string instead of rewriting the WHERE clause.
-  const sql =
-    `SELECT id, username FROM users ` +
-    `WHERE username = ? AND password = ?`;
-
-  let user = null;
+  //
+  // Passwords are stored as scrypt hashes, so the row is looked up by
+  // username and the password is checked in code. When the username does
+  // not exist we still hash against a dummy value, so the response time
+  // does not reveal which usernames are real.
+  let row = null;
   try {
-    user = get(sql, [username, password]);
+    row = get(`SELECT id, username, password_hash FROM users WHERE username = ?`, [username]);
   } catch (e) {
     // fall through to failure
   }
+  const passwordOk = verifyPassword(password, row ? row.password_hash : DUMMY_HASH);
+  const user = row && passwordOk ? row : null;
   if (!user) return res.redirect('/login?failed=1');
 
   const token = crypto.randomBytes(16).toString('hex');

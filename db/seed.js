@@ -4,18 +4,32 @@
 // GreenThumb is a small community board where neighbours list houseplant
 // cuttings they want to swap, and leave comments on each other's listings.
 //
-// NOTE ON PASSWORDS: they are stored in plaintext here ONLY so the SQL
-// injection data-dump exercise has something dramatic to reveal. A real
-// application must store a slow salted hash (bcrypt / argon2) and never the
-// password itself. Password hashing is out of scope for Assignment 3 — do not
-// "fix" it, it is intentional teaching scaffolding.
+// PASSWORDS: the original assignment stored these in plaintext so the UNION
+// injection exercise had something dramatic to reveal. They are now hashed
+// with scrypt (lib/passwords.js) when the database is built. The plaintext
+// values below exist only because this is demo seed data that the exploit
+// scripts log in with; a real app would never keep passwords in source.
+
+const { hashPassword } = require('../lib/passwords');
+
+// Escape a value for use inside a single quoted SQL literal in the seed.
+function sqlString(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+const SEED_USERS = [
+  [1, 'fern_hollow', 'sporeprint77', 'Ferns, mosses, and anything that likes shade.'],
+  [2, 'cactus_carla', 'prickly-pear-2019', 'Desert succulents only. Trade at my own risk.'],
+  [3, 'mossy_mo', 'terrarium4life', 'Building tiny worlds in glass jars.'],
+  [4, 'curator', 'GreenThumb!Root#2024', 'Site curator. Do not share this account.'],
+];
 
 function buildSeed() {
   return `
     CREATE TABLE users (
       id       INTEGER PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
       bio      TEXT
     );
 
@@ -37,11 +51,11 @@ function buildSeed() {
       created_at TEXT NOT NULL
     );
 
-    INSERT INTO users (id, username, password, bio) VALUES
-      (1, 'fern_hollow',  'sporeprint77',       'Ferns, mosses, and anything that likes shade.'),
-      (2, 'cactus_carla', 'prickly-pear-2019',  'Desert succulents only. Trade at my own risk.'),
-      (3, 'mossy_mo',     'terrarium4life',     'Building tiny worlds in glass jars.'),
-      (4, 'curator',      'GreenThumb!Root#2024','Site curator. Do not share this account.');
+    INSERT INTO users (id, username, password_hash, bio) VALUES
+      ${SEED_USERS.map(
+        ([id, username, password, bio]) =>
+          `(${id}, ${sqlString(username)}, ${sqlString(hashPassword(password))}, ${sqlString(bio)})`
+      ).join(',\n      ')};
 
     INSERT INTO listings (id, user_id, title, species, location, description, created_at) VALUES
       (1, 1, 'Split-leaf philodendron cutting', 'Monstera deliciosa', 'North Ward',
