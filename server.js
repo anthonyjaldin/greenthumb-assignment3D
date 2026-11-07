@@ -66,14 +66,14 @@ function currentUser(req) {
 function layout(title, body, req) {
   const user = currentUser(req);
   const nav = user
-    ? `<a href="/me">${user}</a> · <a href="/logout">log out</a>`
+    ? `<a href="/me">${escapeHtml(user)}</a> · <a href="/logout">log out</a>`
     : `<a href="/login">log in</a>`;
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title} · GreenThumb</title>
+  <title>${escapeHtml(title)} · GreenThumb</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -101,9 +101,9 @@ app.get('/', (req, res) => {
   const cards = listings
     .map(
       (l) => `<article class="card">
-        <h2><a href="/listing/${l.id}">${l.title}</a></h2>
-        <p class="species">${l.species}</p>
-        <p class="meta">📍 ${l.location}</p>
+        <h2><a href="/listing/${Number(l.id)}">${escapeHtml(l.title)}</a></h2>
+        <p class="species">${escapeHtml(l.species)}</p>
+        <p class="meta">📍 ${escapeHtml(l.location)}</p>
       </article>`
     )
     .join('');
@@ -140,22 +140,22 @@ app.get('/search', (req, res) => {
     `ORDER BY ${orderBy}`;
 
   let rows = [];
-  let error = null;
+  let error = false;
   try {
     rows = all(sql, [like, like]);
   } catch (e) {
-    error = e.message;
+    // Log the details server side; never show raw database errors to the
+    // visitor, since they reveal table names and query structure.
+    console.error('search query failed:', e.message);
+    error = true;
   }
-
-
-
 
   const results = rows
     .map(
       (r) => `<article class="card">
-        <h2><a href="/listing/${r.id}">${r.title}</a></h2>
-        <p class="species">${r.species}</p>
-        <p class="meta">📍 ${r.location}</p>
+        <h2><a href="/listing/${Number(r.id)}">${escapeHtml(r.title)}</a></h2>
+        <p class="species">${escapeHtml(r.species)}</p>
+        <p class="meta">📍 ${escapeHtml(r.location)}</p>
       </article>`
     )
     .join('');
@@ -163,7 +163,7 @@ app.get('/search', (req, res) => {
   // ---- FIX 3: reflected XSS ---------------------------------------------
   // The search term is HTML-encoded before it is echoed back.
   const heading = `<h1>Search</h1><p class="note">Showing results for “${escapeHtml(q)}”</p>`;
-  const bodyErr = error ? `<p class="error">Query error: ${error}</p>` : '';
+  const bodyErr = error ? '<p class="error">Search is unavailable right now.</p>' : '';
   const list = rows.length ? `<div class="grid">${results}</div>` : '<p>No matches.</p>';
   res.send(layout('Search', heading + bodyErr + list, req));
 });
@@ -237,10 +237,12 @@ app.get('/me', (req, res) => {
     [user]
   );
   const list = mine.length
-    ? mine.map((l) => `<li><a href="/listing/${l.id}">${l.title}</a> — ${l.species}</li>`).join('')
+    ? mine
+        .map((l) => `<li><a href="/listing/${Number(l.id)}">${escapeHtml(l.title)}</a> — ${escapeHtml(l.species)}</li>`)
+        .join('')
     : '<li>You have no listings yet.</li>';
   res.send(
-    layout('Profile', `<h1>Hello, ${user}</h1><p>Your listings:</p><ul>${list}</ul>`, req)
+    layout('Profile', `<h1>Hello, ${escapeHtml(user)}</h1><p>Your listings:</p><ul>${list}</ul>`, req)
   );
 });
 
@@ -264,26 +266,27 @@ app.get('/listing/:id', (req, res) => {
         .map(
           (c) => `<div class="comment">
              <p class="comment-body">${escapeHtml(c.body)}</p>
-             <p class="comment-meta">— ${escapeHtml(c.author)}, ${c.created_at}</p>
+             <p class="comment-meta">— ${escapeHtml(c.author)}, ${escapeHtml(c.created_at)}</p>
            </div>`
         )
         .join('')
     : '<p>No comments yet. Be the first!</p>';
 
-  // Description comes from a trusted seed row, so it is printed as-is.
+  // Every database value is encoded, even ones that only come from seed data
+  // today: once users can create listings, any raw field becomes stored XSS.
   const body = `
     <a class="back" href="/">← all swaps</a>
-    <h1>${l.title}</h1>
-    <p class="species">${l.species}</p>
-    <p class="meta">📍 ${l.location} · posted ${l.created_at}</p>
-    <p class="desc">${l.description}</p>
+    <h1>${escapeHtml(l.title)}</h1>
+    <p class="species">${escapeHtml(l.species)}</p>
+    <p class="meta">📍 ${escapeHtml(l.location)} · posted ${escapeHtml(l.created_at)}</p>
+    <p class="desc">${escapeHtml(l.description)}</p>
 
-    <div id="share-banner" data-listing="${l.id}"></div>
+    <div id="share-banner" data-listing="${Number(l.id)}"></div>
 
     <section class="comments">
       <h2>Comments</h2>
       <div id="comments">${commentsHtml}</div>
-      <form class="stack" action="/listing/${l.id}/comments" method="post">
+      <form class="stack" action="/listing/${Number(l.id)}/comments" method="post">
         <label>Add a comment
           <textarea name="body" rows="3" placeholder="Say something nice…"></textarea>
         </label>
