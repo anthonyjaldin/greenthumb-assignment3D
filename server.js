@@ -53,8 +53,11 @@ function escapeHtml(value) {
 
 
 // ---------------------------------------------------------------------------
-// Tiny in-memory session store:  token -> username
+// Tiny in-memory session store:  token -> { username, expires }
+// Sessions expire after SESSION_TTL_MS, so a stolen or forgotten token
+// stops working instead of staying valid until the server restarts.
 // ---------------------------------------------------------------------------
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const sessions = new Map();
 
 function parseCookies(req) {
@@ -69,8 +72,22 @@ function parseCookies(req) {
 
 function currentUser(req) {
   const sid = parseCookies(req).sid;
-  return sid && sessions.has(sid) ? sessions.get(sid) : null;
+  const session = sid && sessions.get(sid);
+  if (!session) return null;
+  if (Date.now() > session.expires) {
+    sessions.delete(sid);
+    return null;
+  }
+  return session.username;
 }
+
+// Drop expired sessions periodically so the map cannot grow without bound.
+setInterval(() => {
+  const now = Date.now();
+  for (const [sid, session] of sessions) {
+    if (now > session.expires) sessions.delete(sid);
+  }
+}, 15 * 60 * 1000).unref();
 
 // ---------------------------------------------------------------------------
 // HTML layout helper. All pages share this shell.
@@ -221,7 +238,7 @@ app.post('/login', (req, res) => {
   if (!user) return res.redirect('/login?failed=1');
 
   const token = crypto.randomBytes(16).toString('hex');
-  sessions.set(token, user.username);
+  sessions.set(token, { username: user.username, expires: Date.now() + SESSION_TTL_MS });
 
   // ---- FIX 5 (part A): session cookie hardening --------------------------
   // HttpOnly: page scripts (and so XSS payloads) cannot read the cookie.
@@ -229,7 +246,8 @@ app.post('/login', (req, res) => {
   // Secure: only sent over HTTPS when the app is served over HTTPS.
   const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
   const cookie =
-    `sid=${token}; Path=/; HttpOnly; SameSite=Strict` + (secure ? '; Secure' : '');
+    `sid=${token}; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; HttpOnly; SameSite=Strict` +
+    (secure ? '; Secure' : '');
   res.setHeader('Set-Cookie', cookie);
   res.redirect('/me');
 });
