@@ -12,6 +12,9 @@ const { initDb, all, get, run } = require('./lib/db');
 const { verifyPassword, DUMMY_HASH } = require('./lib/passwords');
 
 const app = express();
+
+// Do not advertise the framework (Express adds X-Powered-By by default).
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
 
 // FIX 5 (part B): restrictive Content-Security-Policy on every response.
@@ -21,8 +24,16 @@ app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self'; style-src 'self'; " +
-      "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+      "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; " +
+      "form-action 'self'"
   );
+  // Browsers must not guess content types (stops a text upload being run
+  // as a script), search terms in URLs are not leaked to other sites
+  // through the Referer header, and old browsers that ignore
+  // frame-ancestors still refuse to frame the site (clickjacking).
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Frame-Options', 'DENY');
   next();
 });
 
@@ -226,7 +237,8 @@ app.post('/login', (req, res) => {
 app.get('/logout', (req, res) => {
   const sid = parseCookies(req).sid;
   if (sid) sessions.delete(sid);
-  res.setHeader('Set-Cookie', 'sid=; Path=/; Max-Age=0');
+  // Clear the cookie with the same attributes it was set with.
+  res.setHeader('Set-Cookie', 'sid=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict');
   res.redirect('/');
 });
 
