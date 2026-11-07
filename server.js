@@ -288,7 +288,7 @@ app.get('/listing/:id', (req, res) => {
       <div id="comments">${commentsHtml}</div>
       <form class="stack" action="/listing/${Number(l.id)}/comments" method="post">
         <label>Add a comment
-          <textarea name="body" rows="3" placeholder="Say something nice…"></textarea>
+          <textarea name="body" rows="3" maxlength="${MAX_COMMENT_LENGTH}" required placeholder="Say something nice…"></textarea>
         </label>
         <button type="submit">Post comment</button>
       </form>
@@ -297,10 +297,30 @@ app.get('/listing/:id', (req, res) => {
 });
 
 // Post a comment. The body is stored as typed and encoded on output (FIX 4).
+const MAX_COMMENT_LENGTH = 1000;
+
 app.post('/listing/:id/comments', (req, res) => {
   const id = Number(req.params.id);
+  // Only accept comments for listings that exist; otherwise anyone can fill
+  // the comments table with rows attached to ids that will never be shown.
+  if (!Number.isInteger(id) || !get(`SELECT id FROM listings WHERE id = ?`, [id])) {
+    return res.status(404).send(layout('Not found', '<h1>Listing not found</h1>', req));
+  }
   const author = currentUser(req) || 'guest';
-  const body = req.body.body || '';
+  const body = String(req.body.body || '').trim();
+  if (!body || body.length > MAX_COMMENT_LENGTH) {
+    return res
+      .status(400)
+      .send(
+        layout(
+          'Invalid comment',
+          `<h1>Comment not posted</h1>
+           <p class="error">Comments must be between 1 and ${MAX_COMMENT_LENGTH} characters.</p>
+           <a class="back" href="/listing/${id}">← back to the listing</a>`,
+          req
+        )
+      );
+  }
   run(`INSERT INTO comments (listing_id, author, body, created_at) VALUES (?, ?, ?, ?)`, [
     id,
     author,
