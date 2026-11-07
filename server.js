@@ -1,10 +1,9 @@
-// server.js  —  GreenThumb (STARTER / VULNERABLE build)
+// server.js  —  GreenThumb (secured build)
 // CYSE 411 · Assignment 3
 //
-// This file ships with intentional security defects, tagged FIX 1 .. FIX 5 in
-// the comments below. Each tag matches a task in README.md. Your job is to
-// close every one of them WITHOUT breaking the feature it belongs to.
-// Search this file for "FIX 1", "FIX 2", ... to find each defect.
+// This app started as a deliberately vulnerable starter. The five defects
+// (FIX 1 .. FIX 5) are closed; each comment below describes the defense now
+// in place. WRITEUP.md explains the attack and the fix for each one.
 
 const express = require('express');
 const path = require('path');
@@ -14,6 +13,9 @@ const { initDb, all, get, run } = require('./lib/db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// FIX 5 (part B): restrictive Content-Security-Policy on every response.
+// All JS lives in /app.js and all CSS in /styles.css, so no 'unsafe-inline'
+// is needed, and injected inline scripts or event handlers will not run.
 app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
@@ -26,6 +28,8 @@ app.use((req, res, next) => {
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// HTML-encode untrusted text before it is placed in an HTML element or a
+// quoted attribute. Not sufficient for URLs, <script> blocks, or CSS.
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -113,14 +117,11 @@ app.get('/search', (req, res) => {
   const q = req.query.q || '';
   const sort = req.query.sort || 'created_at DESC';
 
-  // ---- FIX 2: SQL INJECTION (data extraction) ---------------------------
-  // The search term AND the sort column are concatenated straight into the
-  // SQL text, so the visitor controls part of the query, not just its inputs.
-  // A crafted term can UNION in rows from other tables; a crafted sort value
-  // can smuggle in arbitrary SQL.
-  // Fix idea: bind the search value with a "?" placeholder, and choose the
-  //   ORDER BY expression from a fixed allow-list (you cannot bind an
-  //   identifier the way you bind a value).
+  // ---- FIX 2: SQL injection (data extraction) ---------------------------
+  // The search term is bound with "?" placeholders so it is always data.
+  // ORDER BY cannot take a bound parameter (it is an identifier, not a
+  // value), so the sort option is looked up in a fixed allow-list and
+  // anything else falls back to the default.
   const SORT_ALLOW = {
     'created_at DESC': 'created_at DESC',
     'created_at': 'created_at ASC',
@@ -159,11 +160,8 @@ app.get('/search', (req, res) => {
     )
     .join('');
 
-  // ---- FIX 3: REFLECTED XSS ---------------------------------------------
-  // The raw search term is echoed back into the HTML response, so whatever
-  // the visitor typed is parsed by the browser as markup.
-  // Fix idea: HTML-encode any untrusted value before it lands in the page.
-
+  // ---- FIX 3: reflected XSS ---------------------------------------------
+  // The search term is HTML-encoded before it is echoed back.
   const heading = `<h1>Search</h1><p class="note">Showing results for “${escapeHtml(q)}”</p>`;
   const bodyErr = error ? `<p class="error">Query error: ${error}</p>` : '';
   const list = rows.length ? `<div class="grid">${results}</div>` : '<p>No matches.</p>';
@@ -192,31 +190,28 @@ app.get('/login', (req, res) => {
 app.post('/login', (req, res) => {
   const { username = '', password = '' } = req.body;
 
-  // ---- FIX 1: SQL INJECTION (authentication bypass) ---------------------
-  // Credentials are concatenated into the query, so an attacker who injects
-  // SQL can make the WHERE clause true without knowing any password
-  // (e.g. a username of  curator' --  comments the password check away).
-  // Fix idea: use a parameterized query so inputs are treated as pure data.
-const sql =
-  `SELECT id, username FROM users ` +
-  `WHERE username = ? AND password = ?`;
+  // ---- FIX 1: SQL injection (authentication bypass) ---------------------
+  // Parameterized query: a username like  curator' --  is compared as a
+  // literal string instead of rewriting the WHERE clause.
+  const sql =
+    `SELECT id, username FROM users ` +
+    `WHERE username = ? AND password = ?`;
 
-let user = null;
-try {
-  user = get(sql, [username, password]);
-} catch (e) {
-  // fall through to failure
-}
+  let user = null;
+  try {
+    user = get(sql, [username, password]);
+  } catch (e) {
+    // fall through to failure
+  }
   if (!user) return res.redirect('/login?failed=1');
 
   const token = crypto.randomBytes(16).toString('hex');
   sessions.set(token, user.username);
 
-  // ---- FIX 5 (part A): INSECURE SESSION COOKIE --------------------------
-  // The session cookie is set with no protective attributes, so any script
-  // on the page can read it via document.cookie and the browser attaches it
-  // to cross-site requests.
-  // Fix idea: add HttpOnly and SameSite (and Secure when served over HTTPS).
+  // ---- FIX 5 (part A): session cookie hardening --------------------------
+  // HttpOnly: page scripts (and so XSS payloads) cannot read the cookie.
+  // SameSite=Strict: not sent on cross-site requests (CSRF protection).
+  // Secure: only sent over HTTPS when the app is served over HTTPS.
   const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
   const cookie =
     `sid=${token}; Path=/; HttpOnly; SameSite=Strict` + (secure ? '; Secure' : '');
@@ -261,19 +256,17 @@ app.get('/listing/:id', (req, res) => {
     [l.id]
   );
 
-  // ---- FIX 4: STORED XSS ------------------------------------------------
-  // Each comment body was stored exactly as received (see POST handler
-  // below) and is now concatenated into the page without encoding, so a
-  // comment can carry markup that the browser executes for every visitor.
-  // Fix idea: HTML-encode the stored body on output (and/or sanitize on
-  //   input). Do the same wherever else user text is printed.
+  // ---- FIX 4: stored XSS ------------------------------------------------
+  // Comment bodies and authors are HTML-encoded on output, so markup saved
+  // in a comment is displayed as text for every visitor.
   const commentsHtml = comments.length
     ? comments
         .map(
           (c) => `<div class="comment">
              <p class="comment-body">${escapeHtml(c.body)}</p>
              <p class="comment-meta">— ${escapeHtml(c.author)}, ${c.created_at}</p>
-           </div>`        )
+           </div>`
+        )
         .join('')
     : '<p>No comments yet. Be the first!</p>';
 
@@ -300,7 +293,7 @@ app.get('/listing/:id', (req, res) => {
   res.send(layout(l.title, body, req));
 });
 
-// Post a comment (body is stored verbatim — see FIX 4)
+// Post a comment. The body is stored as typed and encoded on output (FIX 4).
 app.post('/listing/:id/comments', (req, res) => {
   const id = Number(req.params.id);
   const author = currentUser(req) || 'guest';
@@ -314,18 +307,8 @@ app.post('/listing/:id/comments', (req, res) => {
   res.redirect(`/listing/${id}`);
 });
 
-// ---------------------------------------------------------------------------
-// FIX 5 (part B): NO CONTENT SECURITY POLICY
-// There is no Content-Security-Policy header anywhere in this app, so the
-// browser will run injected inline scripts and event handlers.
-// Fix idea: send a restrictive CSP on every response (a small middleware,
-//   added ABOVE the routes, is the natural place). This app keeps all of its
-//   JS in /app.js and all CSS in /styles.css, so a 'self'-based policy with
-//   no 'unsafe-inline' will not break anything it legitimately does.
-// ---------------------------------------------------------------------------
-
 initDb().then(() => {
   app.listen(PORT, () => {
-    console.log(`GreenThumb (vulnerable build) → http://localhost:${PORT}`);
+    console.log(`GreenThumb → http://localhost:${PORT}`);
   });
 });

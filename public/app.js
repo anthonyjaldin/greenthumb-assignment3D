@@ -1,15 +1,12 @@
-// public/app.js  (STARTER / VULNERABLE build)
+// public/app.js
 //
 // Client-side code for the listing page. It supports a "shared note" feature:
 // a note can be appended to the URL, e.g.  /listing/1#note=hello  and the page
 // shows it in a banner.
 //
-// The value is read straight out of location.hash and injected with
-// .innerHTML, so it is parsed as HTML. This is a DOM-based XSS (defect FIX 4):
-// the payload never touches the server, yet it still executes in the browser.
-//
-// Fix idea: render the note as TEXT, not HTML (assign to .textContent, or
-// build a text node), so markup in the URL is displayed literally.
+// FIX 4 (DOM-based XSS): the note comes from location.hash, which an attacker
+// controls through a crafted link. It is rendered with .textContent, never
+// .innerHTML, so markup in the URL is shown literally instead of executed.
 
 (function () {
   const bannerEl = document.getElementById('share-banner');
@@ -18,7 +15,6 @@
   if (location.hash.startsWith('#note=')) {
     const note = decodeURIComponent(location.hash.replace(/^#note=/, ''));
 
-    // ---- FIX 4 (client, DOM-based XSS) ----------------------------------
     const banner = document.createElement('div');
     banner.className = 'banner';
     banner.textContent = `📎 Shared note: ${note}`;
