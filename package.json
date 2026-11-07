@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "exploit": "node exploits/run-all.mjs"
+    "exploit": "node exploits/run-all.mjs",
+    "test": "node scripts/test.mjs"
   },
   "dependencies": {
     "express": "^4.19.2",
