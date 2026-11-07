@@ -1,7 +1,7 @@
 {
   "name": "greenthumb-assignment3",
   "version": "1.0.0",
-  "description": "CYSE 411 Assignment 3 — a deliberately vulnerable plant-swap board to be secured by the student.",
+  "description": "GreenThumb: a plant swap board secured against SQL injection, XSS, and session theft, with an exploit suite that proves each fix.",
   "private": true,
   "type": "commonjs",
   "scripts": {

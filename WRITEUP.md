@@ -1,9 +1,9 @@
-WRITEUP Securing GreenThumb
+# Write-up: Securing GreenThumb
 
 This report explains the five security holes I fixed. For each one I say what the bug was, the attack I used to prove it, the fix I made, and what the fix does not protect against. The app runs with npm install and npm start on port 3000. Running npm run exploit reports SECURE for all five, and the site still works (search, login, comments, and the note banner all function).
 
 
-FIX 1 SQL injection (logging in without a password)
+## FIX 1 SQL injection (logging in without a password)
 
 The bug was that the login code glued my typed in username and password straight into the database query, so my text became part of the query instead of just being data.
 
@@ -14,7 +14,7 @@ The fix was using a parameterized query, which sends the query and the values se
 What it does not fix is weak passwords, brute force guessing, or the plain text passwords (that part was left in on purpose).
 
 
-FIX 2 SQL injection (stealing data with UNION and an unsafe sort)
+## FIX 2 SQL injection (stealing data with UNION and an unsafe sort)
 
 The bug was the same gluing problem in the search page, in two places (the search word and the sort option were both pasted into the query).
 
@@ -25,7 +25,7 @@ The fix was two things. For the search word I used a question mark placeholder s
 What it does not fix is that the allow list only works because there are just a few valid sort options, and it does not control who is allowed to see which data.
 
 
-FIX 3 Reflected XSS in search
+## FIX 3 Reflected XSS in search
 
 The bug was that the search page printed my search word back onto the page without cleaning it, so if I typed HTML the browser treated it as real HTML.
 
@@ -36,7 +36,7 @@ The fix was a small escapeHtml function that turns dangerous characters like the
 What it does not fix is other situations, because this cleaning is only right for putting text into HTML (a link, a script block, or CSS would each need different handling).
 
 
-FIX 4 Stored XSS in comments and DOM based XSS in the note banner
+## FIX 4 Stored XSS in comments and DOM based XSS in the note banner
 
 The first bug was that comments were saved exactly as typed and shown to everyone with no cleaning. This is worse than reflected XSS because the victim only has to look at the page, not click a special link.
 
@@ -53,7 +53,7 @@ The fix was changing the code to use textContent instead of innerHTML, because t
 What it does not fix is that the bad comment is still stored in the database, and the safe code fix only covers this one spot (any other unsafe spot would need the same treatment).
 
 
-FIX 5 Cookie safety flags and a Content Security Policy
+## FIX 5 Cookie safety flags and a Content Security Policy
 
 The bug was that the login cookie had no protective settings and the app sent no Content Security Policy, so JavaScript on the page could read the session cookie and steal a login, and the browser would run injected scripts.
 
@@ -64,6 +64,13 @@ The fix was adding HttpOnly to the cookie (so JavaScript can no longer read it a
 What it does not fix is the injection itself. These are backup protections (CSP reduces the damage but good encoding is still the real fix, and HttpOnly protects the cookie but does not stop the XSS).
 
 
-One thing I noticed but did not change
+## One thing I noticed but did not change
 
 The passwords are stored in plain text in the database seed file, which is dangerous in a real app (passwords should be a slow salted hash like bcrypt or argon2). The assignment said to leave this on purpose, so I did, but I wanted to note that I saw it.
+
+
+## Update after the assignment
+
+After the course ended I came back to the plaintext passwords. They are now hashed with scrypt using a random salt for each user, and the login compares hashes in constant time. I also updated exploit 2, because once passwords were hashed it could no longer see a leak by looking for plaintext passwords, so it would have reported SECURE even against vulnerable code. It now also looks for hashes and usernames that only exist in the users table.
+
+I also reviewed the rest of the app the way I would review a real code change and fixed a few things the assignment did not cover: every database value is now encoded on output (not only comments), raw SQL errors are no longer shown to visitors, comments are validated before they are stored, sessions expire after 8 hours, and the app sends a few more security headers. The details are in CHANGELOG.md.
